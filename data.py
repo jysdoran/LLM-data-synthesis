@@ -1,11 +1,43 @@
+import itertools
 import json
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional, Dict
 
 DATASET_PATH = Path(
     "/home/james/Thesis/jysdoran-CodeXGLUE/Text-Code/NL-code-search-Adv/dataset"
 )
+
+
+class JSONLDataset(list):
+    """Class for managing a dataset stored in a JSONL file."""
+
+    def __init__(self, path: Optional[Path] = None):
+        self.path = None
+        if path is not None:
+            self.load_jsonl(path)
+
+    def load_jsonl(self, path):
+        self.clear()
+        self.path = path
+        with open(self.path) as f:
+            for line in f:
+                line = line.strip()
+                js = json.loads(line)
+                self.append(js)
+
+    def save_jsonl(self, path=None):
+        path = path if path is not None else self.path
+        self.path = path
+        with open(self.path, "w") as f:
+            for js in self:
+                f.write(json.dumps(js) + "\n")
+
+    def update_range(self, new_dicts, start=0, end=None):
+        if end is None:
+            end = start + len(new_dicts)
+        assert len(new_dicts) == end - start
+        self[start:end] = new_dicts
 
 
 @dataclass
@@ -28,6 +60,47 @@ class CodeSearchAdvExample:
         self.docstring = js["docstring"]
         self.code_tokens = js["code_tokens"]
         self.docstring_tokens = js["docstring_tokens"]
+
+
+class CodeSearchAdvDataset(list):
+    def __init__(self, path: Optional[Path] = None):
+        super().__init__()
+        if path is not None:
+            self.load_jsonl(path)
+        self.offset = 0
+
+    def load_jsonl(
+        self,
+        path=DATASET_PATH / "train.jsonl",
+        start=0,
+        end=None,
+    ):
+        self.clear()
+        with open(path) as f:
+            for line in itertools.islice(f, start, end):
+                line = line.strip()
+                js = json.loads(line)
+                # assert js["language"] == "python"
+                self.append(CodeSearchAdvExample(js))
+            self.offset = start
+
+    def __getitem__(self, item):
+        if isinstance(item, slice):
+            raise NotImplementedError
+        return super().__getitem__(item - self.offset)
+
+    def save_jsonl(self, path):
+        if self.offset > 0:
+            raise NotImplementedError
+        with open(path, "w") as f:
+            for example in self:
+                f.write(json.dumps(example.__dict__) + "\n")
+
+
+def save_dicts_as_jsonl(dicts: List[Dict], path):
+    with open(path, "w") as f:
+        for data_dict in dicts:
+            f.write(json.dumps(data_dict) + "\n")
 
 
 class InputFeatures(object):
@@ -66,10 +139,12 @@ def convert_examples_to_features(js, tokenizer, args):
 
 def load_data_codesearch_adv(
     file_path=DATASET_PATH / "train.jsonl",
+    start=0,
+    end=None,
 ) -> List[CodeSearchAdvExample]:
     examples = []
     with open(file_path) as f:
-        for line in f:
+        for line in itertools.islice(f, start, end):
             line = line.strip()
             js = json.loads(line)
             assert js["language"] == "python"
@@ -77,29 +152,14 @@ def load_data_codesearch_adv(
 
     return examples
 
-    # if "train" in file_path:
-    #     for idx, example in enumerate(self.examples[:3]):
-    #         logger.info("*** Example ***")
-    #         logger.info("idx: {}".format(idx))
-    #         logger.info(
-    #             "code_tokens: {}".format(
-    #                 [x.replace("\u0120", "_") for x in example.code_tokens]
-    #             )
-    #         )
-    #         logger.info("code_ids: {}".format(" ".join(map(str, example.code_ids))))
-    #         logger.info(
-    #             "nl_tokens: {}".format(
-    #                 [x.replace("\u0120", "_") for x in example.nl_tokens]
-    #             )
-    #         )
-    #         logger.info("nl_ids: {}".format(" ".join(map(str, example.nl_ids))))
-
 
 def main():
-    train = load_data_codesearch_adv(DATASET_PATH / "train.jsonl")
-    # for i in range(3):
-    #     print(train[i])
-    print(len(train))
+    dataset = CodeSearchAdvDataset()
+    dataset.load_jsonl(DATASET_PATH / "train.jsonl", start=9, end=10)
+
+    for example in dataset:
+        print(example)
+    # dataset[:10].save_jsonl("slice.jsonl")
 
 
 if __name__ == "__main__":
